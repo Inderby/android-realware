@@ -108,13 +108,15 @@ public class PeerVideoActivity extends Activity implements NBMWebRTCPeer.Observe
                 NBMMediaConfiguration.NBMRendererType.OPENGLES,
                 NBMMediaConfiguration.NBMAudioCodec.OPUS, 0,
                 NBMMediaConfiguration.NBMVideoCodec.H264, 0,
-                new NBMMediaConfiguration.NBMVideoFormat(352, 288, PixelFormat.RGB_888, 20),
+                new NBMMediaConfiguration.NBMVideoFormat(352, 288, PixelFormat.RGB_888, 30),
                 NBMMediaConfiguration.NBMCameraPosition.FRONT);
 
         videoRequestUserMapping = new HashMap<>();
 
         nbmWebRTCPeer = new NBMWebRTCPeer(peerConnectionParameters, this, localView, this);
         nbmWebRTCPeer.registerMasterRenderer(masterView);
+
+//        nbmWebRTCPeer.addIceServer();
         Log.i(TAG, "Initializing nbmWebRTCPeer...");
         nbmWebRTCPeer.initialize();
         callState = CallState.PUBLISHING;
@@ -136,6 +138,50 @@ public class PeerVideoActivity extends Activity implements NBMWebRTCPeer.Observe
     @Override
     protected void onResume() {
         super.onResume();
+        while(!nbmWebRTCPeer.isInitialized()) {
+        }
+        try {synchronized(nbmWebRTCPeer){
+            nbmWebRTCPeer.wait();
+        }
+        } catch (InterruptedException e) {
+            throw new RuntimeException(e);
+        }
+
+//        nbmWebRTCPeer.createDataChannel()
+        DataChannel channel =  nbmWebRTCPeer.getDataChannel("local", "default");
+        if (channel == null) {
+            DataChannel.Init init = new DataChannel.Init();
+            init.negotiated = false;
+            init.ordered = true;
+            Log.i(TAG, "[DataChannel] Channel does not exist, creating...");
+            channel = nbmWebRTCPeer.createDataChannel("local", "default", init);
+        }
+        else {
+            Log.i(TAG, "[DataChannel] Channel already exists. State: " + channel.state());
+            sendHelloMessage(channel);
+        }
+
+        // If back button has not been pressed in a while then trigger thread and toast notification
+        if (!this.backPressed){
+            this.backPressed = true;
+            Toast.makeText(this,"Press back again to end.",Toast.LENGTH_SHORT).show();
+            this.backPressedThread = new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        Thread.sleep(1000);
+                        backPressed = false;
+                    } catch (InterruptedException e){ Log.d("VCA-oBP","Successfully interrupted"); }
+                }
+            });
+            this.backPressedThread.start();
+        }
+        // If button pressed the second time then call super back pressed
+        // (eventually calls onDestroy)
+        else {
+            if (this.backPressedThread != null)
+                this.backPressedThread.interrupt();
+        }
         nbmWebRTCPeer.startLocalMedia();
     }
 
@@ -170,15 +216,15 @@ public class PeerVideoActivity extends Activity implements NBMWebRTCPeer.Observe
     @Override
     public void onBackPressed() {
         // Data channel test code
-        /*DataChannel channel = nbmWebRTCPeer.getDataChannel("local", "test_channel_static");
-        if (channel.state() == DataChannel.State.OPEN) {
-            sendHelloMessage(channel);
-            Log.i(TAG, "[datachannel] Datachannel open, sending hello");
-        }
-        else {
-            Log.i(TAG, "[datachannel] Channel is not open! State: " + channel.state());
-        }
-        Log.i(TAG, "[DataChannel] Testing for existing channel");
+//        DataChannel channel = nbmWebRTCPeer.getDataChannel("local", "test_channel_static");
+//        if (channel.state() == DataChannel.State.OPEN) {
+//            sendHelloMessage(channel);
+//            Log.i(TAG, "[datachannel] Datachannel open, sending hello");
+//        }
+//        else {
+//            Log.i(TAG, "[datachannel] Channel is not open! State: " + channel.state());
+//        }
+
         DataChannel channel =  nbmWebRTCPeer.getDataChannel("local", "default");
         if (channel == null) {
             DataChannel.Init init = new DataChannel.Init();
@@ -190,7 +236,7 @@ public class PeerVideoActivity extends Activity implements NBMWebRTCPeer.Observe
         else {
             Log.i(TAG, "[DataChannel] Channel already exists. State: " + channel.state());
             sendHelloMessage(channel);
-        }*/
+        }
 
         // If back button has not been pressed in a while then trigger thread and toast notification
         if (!this.backPressed){
@@ -253,10 +299,15 @@ public class PeerVideoActivity extends Activity implements NBMWebRTCPeer.Observe
     @Override
     public void onInitialize() {
         nbmWebRTCPeer.generateOffer("local", true);
+        synchronized(nbmWebRTCPeer){
+            nbmWebRTCPeer.notify();
+        }
+
     }
 
     @Override
     public void onLocalSdpOfferGenerated(final SessionDescription sessionDescription, final NBMPeerConnection nbmPeerConnection) {
+        Log.i(TAG, "local sdp generated ");
         if (callState == CallState.PUBLISHING || callState == CallState.PUBLISHED) {
             Log.d(TAG, "Sending " + sessionDescription.type);
             publishVideoRequestId = ++Constants.id;

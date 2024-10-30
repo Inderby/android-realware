@@ -70,4 +70,5 @@ dependencies {
     implementation(libs.webrtcpeer.android)
     implementation(libs.kurento.room.client.android)
     implementation("com.android.support:appcompat-v7:28.0.0")
+    implementation("androidx.media:media:1.6.0")
 }
